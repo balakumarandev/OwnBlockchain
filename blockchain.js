@@ -1,10 +1,37 @@
 const SHA256 = require('crypto-js/sha256');
+const EC = require('elliptic').ec;
+const ec = new EC('secp256k1');
 
 class Transaction {
     constructor(from, to, amount) {
         this.from = from;
         this.to = to;
         this.amount = amount;
+    }
+
+    calculateHash() {
+        return SHA256(this.from + this.to + this.amount).toString();
+    }
+
+    signTransaction(signingKey) {
+        if (signingKey.getPublic('hex') !== this.from) {
+            throw new Error('you cannot sign for others wallet');
+        }
+
+        const hashtx = this.calculateHash();
+        const sig = signingKey.sign(hashtx, 'base64');
+        this.signature = sig.toDER('hex');
+    }
+
+    isValid() {
+        if (this.from === null) return null;
+
+        if (!this.signature || this.signature.length === 0) {
+            throw new Error('no signature in this transaction');
+        }
+
+        const publicKey = ec.keyFromPublic(this.from, 'hex');
+        return publicKey.verify(this.calculateHash(), this.signature);
     }
 }
 
@@ -29,6 +56,15 @@ class Block {
         }
 
         console.log('BLOCKMINED:  ' + this.hash);
+    }
+
+    hasValidTransactions() {
+        for (const tx of this.transactions) {
+            if (!tx.isValid()) {
+                return false;
+            }
+        }
+        return true;
     }
 }
 
@@ -59,11 +95,19 @@ class Blockchain {
     }
 
 
-    
 
-    createTransaction(from, to, address) {
-        var tx = new Transaction(from, to, address);
-        this.pendingTransactions.push(tx);
+
+    addTransaction(transaction) {
+
+        if (!transaction.from || !transaction.to) {
+            throw new Error('transaction must include from and to address');
+        }
+        
+        if (!transaction.isValid()) {
+            throw new Error('transaction is not valid');
+        }
+
+        this.pendingTransactions.push(transaction);
     }
 
     balanceOfAddress(address) {
@@ -86,6 +130,10 @@ class Blockchain {
             const currentblock = this.chain[i];
             const previousblock = this.chain[i - 1];
 
+            if (!currentblock.hasValidTransactions()) {
+                return false;
+            }
+
             if (currentblock.hash !== currentblock.calculateHash()) {
                 return false;
             }
@@ -99,3 +147,4 @@ class Blockchain {
 }
 
 module.exports.Blockchain = Blockchain;
+module.exports.Transaction = Transaction;
